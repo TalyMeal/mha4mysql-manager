@@ -24,7 +24,7 @@ use warnings FATAL => 'all';
 
 use MHA::NodeConst;
 
-our $VERSION          = '0.59';
+our $VERSION          = '0.60';
 our $NODE_MIN_VERSION = '0.59';
 
 our @ALIVE_ERROR_CODES = (
@@ -82,6 +82,7 @@ our $SSH_OPT_CHECK_DEFAULT = $SSH_OPT_CHECK;
 our $PING_TYPE_CONNECT = "CONNECT";
 our $PING_TYPE_SELECT  = "SELECT";
 our $PING_TYPE_INSERT  = "INSERT";
+our $DEFAULT_PING_MAX_FAILURES = 4;
 
 our $DEFAULT_GLOBAL_CONF = "/etc/masterha_default.cnf";
 
