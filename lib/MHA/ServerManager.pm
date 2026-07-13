@@ -542,6 +542,16 @@ sub validate_slaves($$$) {
           $_->get_hostinfo() )
       );
     }
+    if ( $self->is_gtid_auto_pos_enabled()
+      && !$_->{log_slave_updates} )
+    {
+      $log->warning(
+        sprintf(
+" log_slave_updates is not enabled on slave %s. This host cannot be a master in GTID failover mode.\n",
+          $_->get_hostinfo()
+        )
+      );
+    }
   }
   $error = $self->validate_repl_filter($master)
     if ($check_repl_filter);
@@ -947,6 +957,9 @@ sub read_slave_status($) {
     $_->{Relay_Log_Pos}         = $status{Relay_Log_Pos};
     $_->{Retrieved_Gtid_Set}    = $status{Retrieved_Gtid_Set};
     $_->{Executed_Gtid_Set}     = $status{Executed_Gtid_Set};
+    $_->{Using_Gtid}            = $status{Using_Gtid};
+    $_->{Gtid_IO_Pos}           = $status{Gtid_IO_Pos};
+    $_->{Auto_Position}         = $status{Auto_Position};
   }
   $log->debug(" Fetching current slave status done.");
 }
@@ -1144,6 +1157,7 @@ sub check_slave_delay($$$) {
 # - Set no_master in conf files (i.e. DR servers)
 # - log_bin is disabled
 # - Major version is not the oldest
+# - log_slave_updates is disabled in GTID failover mode
 # - too much replication delay
 sub get_bad_candidate_masters($$$) {
   my $self                    = shift;
@@ -1157,6 +1171,8 @@ sub get_bad_candidate_masters($$$) {
     if (
          $_->{no_master} >= 1
       || $_->{log_bin} eq '0'
+      || ( $self->is_gtid_auto_pos_enabled()
+        && !$_->{log_slave_updates} )
       || $_->{oldest_major_version} eq '0'
       || (
         $latest_slave
@@ -1289,16 +1305,30 @@ sub get_new_master_binlog_position($$) {
   if ( $file && defined($pos) ) {
     $log->info(" $file:$pos");
     if ( $self->is_gtid_auto_pos_enabled() ) {
-      $log->info(
-        sprintf(
+      if ( $target->{is_mariadb} ) {
+        $log->info(
+          sprintf(
+" All other slaves should start replication from here. Statement should be: CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USE_GTID=slave_pos, MASTER_USER='%s', MASTER_PASSWORD='xxx';",
+            ( $target->{hostname} eq $target->{ip} )
+            ? $target->{hostname}
+            : ("$target->{hostname} or $target->{ip}"),
+            $target->{port},
+            $target->{repl_user}
+          )
+        );
+      }
+      else {
+        $log->info(
+          sprintf(
 " All other slaves should start replication from here. Statement should be: CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_AUTO_POSITION=1, MASTER_USER='%s', MASTER_PASSWORD='xxx';",
-          ( $target->{hostname} eq $target->{ip} )
-          ? $target->{hostname}
-          : ("$target->{hostname} or $target->{ip}"),
-          $target->{port},
-          $target->{repl_user}
-        )
-      );
+            ( $target->{hostname} eq $target->{ip} )
+            ? $target->{hostname}
+            : ("$target->{hostname} or $target->{ip}"),
+            $target->{port},
+            $target->{repl_user}
+          )
+        );
+      }
 
     }
     else {
@@ -1324,7 +1354,8 @@ sub get_new_master_binlog_position($$) {
 }
 
 sub change_master_and_start_slave {
-  my ( $self, $target, $master, $master_log_file, $master_log_pos, $log ) = @_;
+  my ( $self, $target, $master, $master_log_file, $master_log_pos, $log,
+    $demote ) = @_;
   $log = $self->{logger} unless ($log);
   return if ( $target->{id} eq $master->{id} );
   my $dbhelper = $target->{dbhelper};
@@ -1342,14 +1373,22 @@ sub change_master_and_start_slave {
     ? $master->{ip}
     : $master->{hostname};
 
-  if ( $self->is_gtid_auto_pos_enabled() && !$target->{is_mariadb} ) {
-    $dbhelper->change_master_gtid( $addr, $master->{port},
-      $master->{repl_user}, $master->{repl_password} );
+  my $change_master_error;
+  if ( $self->is_gtid_auto_pos_enabled() ) {
+    $change_master_error = $dbhelper->change_master_gtid( $addr,
+      $master->{port}, $master->{repl_user}, $master->{repl_password},
+      $demote );
   }
   else {
-    $dbhelper->change_master( $addr,
+    $change_master_error = $dbhelper->change_master( $addr,
       $master->{port}, $master_log_file, $master_log_pos, $master->{repl_user},
       $master->{repl_password} );
+  }
+  if ($change_master_error) {
+    $log->error(
+      sprintf( " CHANGE MASTER failed on %s: %s",
+        $target->get_hostinfo(), $change_master_error ) );
+    return 1;
   }
   $log->info(" Executed CHANGE MASTER.");
 
@@ -1537,6 +1576,17 @@ sub get_gtid_status($) {
   my @servers = $self->get_alive_servers();
   my @slaves  = $self->get_alive_slaves();
   return 0 if ( $#servers < 0 );
+  my %flavors;
+  foreach (@servers) {
+    $flavors{ $_->{is_mariadb} ? "mariadb" : "mysql" } = 1;
+  }
+  if ( keys(%flavors) > 1 ) {
+    my $log = $self->{logger};
+    $log->warning(
+"Mixed MySQL/MariaDB topology detected. GTID auto-position failover is disabled."
+    ) if ($log);
+    return 0;
+  }
   foreach (@servers) {
     return 0 unless ( $_->{has_gtid} );
   }
@@ -1576,8 +1626,19 @@ sub wait_until_in_sync($$$) {
   my $advanced = shift;
   my $log      = $self->{logger};
   my $ret;
-  my ( $file, $pos ) = $advanced->get_binlog_position();
-  $ret = $waiter->master_pos_wait( $file, $pos );
+  if ( $self->is_gtid_auto_pos_enabled() && $waiter->{is_mariadb} ) {
+    my ( $file, $pos, $binlog_do_db, $binlog_ignore_db, $gtid ) =
+      $advanced->get_binlog_position();
+    unless ( defined($gtid) ) {
+      $log->error("Failed to get MariaDB GTID position for synchronization");
+      return 1;
+    }
+    $ret = $waiter->gtid_wait( $gtid, $log );
+  }
+  else {
+    my ( $file, $pos ) = $advanced->get_binlog_position();
+    $ret = $waiter->master_pos_wait( $file, $pos );
+  }
   if ($ret) {
     $log->error("Get error on waiting slave");
   }

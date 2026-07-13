@@ -15,5 +15,5 @@ Depends: ${misc:Depends}, ${perl:Depends},
   libconfig-tiny-perl,
   liblog-dispatch-perl,
   libparallel-forkmanager-perl,
-  mha4mysql-node (>= 0.54)
+  mha4mysql-node (>= 0.59)
 Description: Master High Availability Manager and Tools for MySQL, Manager Package

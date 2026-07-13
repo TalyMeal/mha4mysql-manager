@@ -375,11 +375,18 @@ sub reject_update($$) {
   return ( $orig_master_log_file, $orig_master_log_pos );
 }
 
-sub switch_master_internal($$$) {
+sub switch_master_internal($$$$) {
   my $target               = shift;
+  my $orig_master          = shift;
   my $orig_master_log_file = shift;
   my $orig_master_log_pos  = shift;
-  if ( $target->master_pos_wait( $orig_master_log_file, $orig_master_log_pos ) )
+  if ( $_server_manager->is_gtid_auto_pos_enabled() ) {
+    return
+      if ( $_server_manager->wait_until_in_sync( $target, $orig_master ) );
+  }
+  elsif (
+    $target->master_pos_wait( $orig_master_log_file, $orig_master_log_pos )
+    )
   {
     return;
   }
@@ -393,7 +400,7 @@ sub switch_master($$$$) {
   my $orig_master_log_pos  = shift;
 
   my ( $master_log_file, $master_log_pos ) =
-    switch_master_internal( $new_master, $orig_master_log_file,
+    switch_master_internal( $new_master, $orig_master, $orig_master_log_file,
     $orig_master_log_pos );
   if ( !$master_log_file or !defined($master_log_pos) ) {
     $log->error("Failed to get new master's binlog and/or position!");
@@ -441,6 +448,7 @@ sub switch_master($$$$) {
 
 sub switch_slaves_internal {
   my $new_master           = shift;
+  my $orig_master          = shift;
   my $orig_master_log_file = shift;
   my $orig_master_log_pos  = shift;
   my $master_log_file      = shift;
@@ -525,7 +533,12 @@ sub switch_slaves_internal {
       );
 
       $target->current_slave_position($pplog);
-      if (
+      if ( $_server_manager->is_gtid_auto_pos_enabled() ) {
+        if ( $_server_manager->wait_until_in_sync( $target, $orig_master ) ) {
+          $pm->finish(1);
+        }
+      }
+      elsif (
         $target->master_pos_wait(
           $orig_master_log_file, $orig_master_log_pos, $pplog
         )
@@ -564,8 +577,9 @@ sub switch_slaves($$$$$$) {
   my $orig_master_log_pos  = shift;
   my $master_log_file      = shift;
   my $master_log_pos       = shift;
-  my $ret = switch_slaves_internal( $new_master, $orig_master_log_file,
-    $orig_master_log_pos, $master_log_file, $master_log_pos );
+  my $ret = switch_slaves_internal( $new_master, $orig_master,
+    $orig_master_log_file, $orig_master_log_pos, $master_log_file,
+    $master_log_pos );
   $log->info("Unlocking all tables on the orig master:");
   $orig_master->unlock_tables();
 
@@ -577,7 +591,7 @@ sub switch_slaves($$$$$$) {
     }
     if (
       $_server_manager->change_master_and_start_slave(
-        $orig_master, $new_master, $master_log_file, $master_log_pos
+        $orig_master, $new_master, $master_log_file, $master_log_pos, $log, 1
       )
       )
     {
@@ -742,4 +756,3 @@ sub main {
 }
 
 1;
-

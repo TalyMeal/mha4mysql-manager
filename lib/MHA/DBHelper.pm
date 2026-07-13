@@ -64,6 +64,8 @@ use constant Last_Errno                  => "Last_Errno";
 use constant Last_Error                  => "Last_Error";
 use constant Retrieved_Gtid_Set          => "Retrieved_Gtid_Set";
 use constant Auto_Position               => "Auto_Position";
+use constant Using_Gtid                  => "Using_Gtid";
+use constant Gtid_IO_Pos                 => "Gtid_IO_Pos";
 
 use constant Set_Long_Wait_Timeout_SQL => "SET wait_timeout=86400";
 use constant Show_One_Variable_SQL     => "SHOW GLOBAL VARIABLES LIKE ?";
@@ -75,6 +77,10 @@ use constant Change_Master_Gtid_SQL =>
 "CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='%s', MASTER_PASSWORD='%s', MASTER_AUTO_POSITION=1";
 use constant Change_Master_Gtid_NoPass_SQL =>
 "CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='%s', MASTER_AUTO_POSITION=1";
+use constant Change_Master_MariaDB_Gtid_SQL =>
+"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='%s', MASTER_PASSWORD='%s', %s";
+use constant Change_Master_MariaDB_Gtid_NoPass_SQL =>
+"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='%s', %s";
 use constant Reset_Slave_Master_Host_SQL => "RESET SLAVE /*!50516 ALL */";
 use constant Reset_Slave_SQL             => "RESET SLAVE";
 use constant Change_Master_Clear_SQL     => "CHANGE MASTER TO MASTER_HOST=''";
@@ -94,6 +100,8 @@ use constant Get_Basedir_SQL        => "SELECT \@\@global.basedir AS Value";
 use constant Get_Datadir_SQL        => "SELECT \@\@global.datadir AS Value";
 use constant Get_Num_Workers_SQL =>
   "SELECT \@\@global.slave_parallel_workers AS Value";
+use constant Get_MariaDB_Num_Workers_SQL =>
+  "SELECT \@\@global.slave_parallel_threads AS Value";
 use constant Get_MaxAllowedPacket_SQL =>
   "SELECT \@\@global.max_allowed_packet AS Value";
 use constant Set_MaxAllowedPacket1G_SQL =>
@@ -101,6 +109,14 @@ use constant Set_MaxAllowedPacket1G_SQL =>
 use constant Set_MaxAllowedPacket_SQL => "SET GLOBAL max_allowed_packet=%d";
 use constant Is_Readonly_SQL          => "SELECT \@\@global.read_only As Value";
 use constant Has_Gtid_SQL             => "SELECT \@\@global.gtid_mode As Value";
+use constant Has_MariaDB_Gtid_SQL =>
+  "SELECT \@\@global.gtid_current_pos As Value";
+use constant Get_MariaDB_Gtid_Slave_Pos_SQL =>
+  "SELECT \@\@global.gtid_slave_pos As Value";
+use constant Get_MariaDB_Gtid_Binlog_Pos_SQL =>
+  "SELECT \@\@global.gtid_binlog_pos As Value";
+use constant Get_Log_Slave_Updates_SQL =>
+  "SELECT \@\@global.log_slave_updates As Value";
 use constant Get_ServerID_SQL         => "SELECT \@\@global.server_id As Value";
 use constant Unset_Readonly_SQL       => "SET GLOBAL read_only=0";
 use constant Set_Readonly_SQL         => "SET GLOBAL read_only=1";
@@ -111,6 +127,8 @@ use constant Master_Pos_Wait_NoTimeout_SQL =>
   "SELECT MASTER_POS_WAIT(?,?,0) AS Result";
 use constant Gtid_Wait_NoTimeout_SQL =>
   "SELECT WAIT_UNTIL_SQL_THREAD_AFTER_GTIDS(?,0) AS Result";
+use constant MariaDB_Gtid_Wait_NoTimeout_SQL =>
+  "SELECT MASTER_GTID_WAIT(?,-1) AS Result";
 use constant Get_Connection_Id_SQL  => "SELECT CONNECTION_ID() AS Value";
 use constant Flush_Tables_Nolog_SQL => "FLUSH NO_WRITE_TO_BINLOG TABLES";
 use constant Flush_Tables_With_Read_Lock_SQL => "FLUSH TABLES WITH READ LOCK";
@@ -134,6 +152,7 @@ sub new {
     connection_id => undef,
     has_gtid      => undef,
     is_mariadb    => undef,
+    mysql_version => undef,
     @_,
   };
   return bless $self, $class;
@@ -232,6 +251,17 @@ sub get_variable {
   return $href->{Value};
 }
 
+sub get_variable_if_exists {
+  my $self  = shift;
+  my $query = shift;
+  my $sth   = $self->{dbh}->prepare($query);
+  my $ret   = $sth->execute();
+  return if ( !defined($ret) );
+  my $href = $sth->fetchrow_hashref;
+  return if ( !defined($href) );
+  return $href->{Value};
+}
+
 # display one value that are not supported by select @@..
 sub show_variable($$) {
   my $self = shift;
@@ -272,11 +302,19 @@ sub is_read_only($) {
 
 sub has_gtid($) {
   my $self  = shift;
-  my $value = $self->get_variable(Has_Gtid_SQL);
-  if ( defined($value) && $value eq "ON" ) {
+  my $value =
+    $self->{is_mariadb}
+    ? $self->get_variable_if_exists(Has_MariaDB_Gtid_SQL)
+    : $self->get_variable(Has_Gtid_SQL);
+  if (
+    defined($value)
+    && ( $self->{is_mariadb} || uc($value) eq "ON" )
+    )
+  {
     $self->{has_gtid} = 1;
     return 1;
   }
+  $self->{has_gtid} = 0;
   return 0;
 }
 
@@ -292,16 +330,49 @@ sub get_datadir($) {
 
 sub get_num_workers($) {
   my $self = shift;
-  return $self->get_variable(Get_Num_Workers_SQL);
+  return $self->get_variable(
+    $self->{is_mariadb}
+    ? Get_MariaDB_Num_Workers_SQL
+    : Get_Num_Workers_SQL
+  );
+}
+
+sub is_log_slave_updates_enabled($) {
+  my $self  = shift;
+  my $value = $self->get_variable(Get_Log_Slave_Updates_SQL);
+  return 1
+    if ( defined($value)
+    && ( $value eq "1" || uc($value) eq "ON" ) );
+  return 0;
 }
 
 sub get_version($) {
   my $self  = shift;
   my $value = MHA::SlaveUtil::get_version( $self->{dbh} );
-  if ( $value =~ /MariaDB/ ) {
-    $self->{is_mariadb} = 1;
-  }
+  $self->{mysql_version} = $value;
+  $self->{is_mariadb} =
+    defined($value) && $value =~ /MariaDB/i ? 1 : 0;
   return $value;
+}
+
+sub mariadb_version_ge($$) {
+  my ( $self, $target_version ) = @_;
+  my $version = $self->{mysql_version};
+  return 0 unless ( defined($version) && defined($target_version) );
+
+  # Some MariaDB clients expose a 5.5.5 compatibility prefix.
+  $version =~ s/^5\.5\.5-//;
+  my @version_parts = $version =~ /^(\d+)\.(\d+)(?:\.(\d+))?/;
+  my @target_parts = $target_version =~ /^(\d+)\.(\d+)(?:\.(\d+))?/;
+  return 0 unless ( @version_parts >= 2 && @target_parts >= 2 );
+  $version_parts[2] = 0 unless ( defined( $version_parts[2] ) );
+  $target_parts[2]  = 0 unless ( defined( $target_parts[2] ) );
+
+  for my $index ( 0 .. 2 ) {
+    return 1 if ( $version_parts[$index] > $target_parts[$index] );
+    return 0 if ( $version_parts[$index] < $target_parts[$index] );
+  }
+  return 1;
 }
 
 sub is_relay_log_purge($) {
@@ -358,8 +429,13 @@ sub show_master_status($) {
   return if ( !defined($ret) || $ret != 1 );
 
   $href = $sth->fetchrow_hashref;
+  return if ( !defined($href) );
   for my $key ( File, Position, Executed_Gtid_Set ) {
     $values{$key} = $href->{$key};
+  }
+  if ( $self->{is_mariadb} ) {
+    $values{Executed_Gtid_Set} =
+      $self->get_variable(Get_MariaDB_Gtid_Binlog_Pos_SQL);
   }
   for my $filter_key ( Binlog_Do_DB, Binlog_Ignore_DB ) {
     $values{$filter_key} = uniq_and_sort( $href->{$filter_key} );
@@ -472,14 +548,33 @@ sub change_master($$$$$$$) {
   return $self->execute($query);
 }
 
-sub change_master_gtid($$$$$) {
+sub change_master_gtid($$$$$;$) {
   my $self            = shift;
   my $master_host     = shift;
   my $master_port     = shift;
   my $master_user     = shift;
   my $master_password = shift;
+  my $demote           = shift;
   my $query;
-  if ($master_password) {
+  if ( $self->{is_mariadb} ) {
+    my $gtid_clause = "MASTER_USE_GTID=slave_pos";
+    if ($demote) {
+      $gtid_clause =
+        $self->mariadb_version_ge("10.10.0")
+        ? "MASTER_DEMOTE_TO_SLAVE=1"
+        : "MASTER_USE_GTID=current_pos";
+    }
+    if ($master_password) {
+      $query = sprintf( Change_Master_MariaDB_Gtid_SQL,
+        $master_host, $master_port, $master_user, $master_password,
+        $gtid_clause );
+    }
+    else {
+      $query = sprintf( Change_Master_MariaDB_Gtid_NoPass_SQL,
+        $master_host, $master_port, $master_user, $gtid_clause );
+    }
+  }
+  elsif ($master_password) {
     $query = sprintf( Change_Master_Gtid_SQL,
       $master_host, $master_port, $master_user, $master_password );
   }
@@ -557,6 +652,7 @@ sub stop_slave() {
 
 sub uniq_and_sort {
   my $str = shift;
+  return "" unless ( defined($str) && length($str) );
   my @array = split( /,/, $str );
   my %count;
   @array = grep( !$count{$_}++, @array );
@@ -597,20 +693,37 @@ sub check_slave_status {
 
   $status{Status} = 0;
   $href = $sth->fetchrow_hashref;
+  unless ( defined($href) ) {
+    $status{Status} = 1;
+    return %status;
+  }
 
   for my $key (
     Slave_IO_State,        Master_Host,
     Master_Port,           Master_User,
     Slave_IO_Running,      Slave_SQL_Running,
     Master_Log_File,       Read_Master_Log_Pos,
-    Relay_Master_Log_File, Last_Errno,
+    Relay_Master_Log_File, 'Last_IO_Errno',
+    'Last_IO_Error',       Last_Errno,
     Last_Error,            Exec_Master_Log_Pos,
     Relay_Log_File,        Relay_Log_Pos,
     Seconds_Behind_Master, Retrieved_Gtid_Set,
-    Executed_Gtid_Set,     Auto_Position
+    Executed_Gtid_Set,     Auto_Position,
+    Using_Gtid,            Gtid_IO_Pos
     )
   {
     $status{$key} = $href->{$key};
+  }
+
+  if ( $self->{is_mariadb} ) {
+    my $using_gtid = $status{Using_Gtid};
+    $status{Auto_Position} =
+      defined($using_gtid)
+      && length($using_gtid)
+      && lc($using_gtid) ne "no" ? 1 : 0;
+    $status{Retrieved_Gtid_Set} = $status{Gtid_IO_Pos};
+    $status{Executed_Gtid_Set} =
+      $self->get_variable(Get_MariaDB_Gtid_Slave_Pos_SQL);
   }
 
   if ( !$status{Master_Host}
@@ -872,7 +985,11 @@ sub master_pos_wait($$$) {
 sub gtid_wait($$) {
   my $self      = shift;
   my $exec_gtid = shift;
-  my $sth       = $self->{dbh}->prepare(Gtid_Wait_NoTimeout_SQL);
+  my $query =
+    $self->{is_mariadb}
+    ? MariaDB_Gtid_Wait_NoTimeout_SQL
+    : Gtid_Wait_NoTimeout_SQL;
+  my $sth = $self->{dbh}->prepare($query);
   $sth->execute($exec_gtid);
   my $href = $sth->fetchrow_hashref;
   return $href->{Result};

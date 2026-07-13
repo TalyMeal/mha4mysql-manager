@@ -1,6 +1,6 @@
 Summary: Master High Availability Manager and Tools for MySQL, Manager Package
 Name: mha4mysql-manager
-Version: 0.58
+Version: 0.59
 Release: 0%{?dist}
 License: GPL v2
 Vendor: DeNA Co.,Ltd.
@@ -12,7 +12,7 @@ BuildRequires: perl(ExtUtils::MakeMaker) >= 6.30
 Requires: perl(Config::Tiny)
 Requires: perl(Log::Dispatch)
 Requires: perl(Parallel::ForkManager)
-Requires: mha4mysql-node >= 0.54
+Requires: mha4mysql-node >= 0.59
 Requires: perl(DBD::mysql)
 Source0: mha4mysql-manager-%{version}.tar.gz
 
@@ -58,6 +58,11 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 
 %changelog
+* Sun Jul 12 2026 A S <furyseer@gmail.com> - 0.59-0
+- Add MariaDB GTID replication support.
+- Synchronize online switches by MariaDB GTID and report replica IO errors.
+- Require mha4mysql-node 0.59 for compatible MariaDB client handling.
+
 * Thu Mar 22 2018 Kenny.Gryp <kenny@goss.be>
 - Several bugfixes
 - IPV6 support
@@ -90,4 +95,3 @@ rm -rf $RPM_BUILD_ROOT
 
 * Sat Jul 23 2011 Yoshinori Matsunobu <Yoshinori.Matsunobu@gmail.com>
 - Version 0.50
-

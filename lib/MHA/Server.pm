@@ -222,10 +222,12 @@ sub connect_and_get_status {
   );
   $dbhelper->set_long_wait_timeout();
   my ( $sstatus, $mip, $mport, $read_only, $relay_purge ) = ();
-  $self->{server_id}     = $dbhelper->get_server_id();
-  $self->{mysql_version} = $dbhelper->get_version();
-  $self->{has_gtid}      = $dbhelper->has_gtid();
-  $self->{log_bin}       = $dbhelper->is_binlog_enabled();
+  $self->{server_id}        = $dbhelper->get_server_id();
+  $self->{mysql_version}    = $dbhelper->get_version();
+  $self->{is_mariadb}       = $dbhelper->{is_mariadb} ? 1 : 0;
+  $self->{has_gtid}         = $dbhelper->has_gtid();
+  $self->{log_bin}          = $dbhelper->is_binlog_enabled();
+  $self->{log_slave_updates} = $dbhelper->is_log_slave_updates_enabled();
 
   #if log-bin is enabled, check binlog filtering rules on all servers
   if ( $self->{log_bin} ) {
@@ -283,8 +285,11 @@ sub connect_and_get_status {
     $self->{not_slave}     = 0;
     $self->{Master_Host}   = $status{Master_Host};
     $self->{repl_user}     = $status{Master_User} unless ( $self->{repl_user} );
-    $self->{Auto_Position} = $status{Auto_Position};
-    $self->{Executed_Gtid_Set} = $status{Executed_Gtid_Set};
+    $self->{Auto_Position}      = $status{Auto_Position};
+    $self->{Using_Gtid}         = $status{Using_Gtid};
+    $self->{Gtid_IO_Pos}        = $status{Gtid_IO_Pos};
+    $self->{Retrieved_Gtid_Set} = $status{Retrieved_Gtid_Set};
+    $self->{Executed_Gtid_Set}  = $status{Executed_Gtid_Set};
 
 # Master_Host is ip address when you use ip address to connect. In this case, you should use ip address to change master.
     if ( $self->{Master_Host} eq $self->{Master_IP} ) {
@@ -470,6 +475,9 @@ sub current_slave_position {
   $self->{Relay_Log_Pos}         = $status{Relay_Log_Pos};
   $self->{Retrieved_Gtid_Set}    = $status{Retrieved_Gtid_Set};
   $self->{Executed_Gtid_Set}     = $status{Executed_Gtid_Set};
+  $self->{Using_Gtid}            = $status{Using_Gtid};
+  $self->{Gtid_IO_Pos}           = $status{Gtid_IO_Pos};
+  $self->{Auto_Position}         = $status{Auto_Position};
   return $self;
 }
 
@@ -771,6 +779,22 @@ sub wait_until_slave_starts($$) {
         && $status{Slave_SQL_Running} eq "Yes" );
     }
 
+    if ( $status{Slave_IO_Running} eq "No"
+      && defined( $status{Last_IO_Errno} )
+      && $status{Last_IO_Errno} ne '0' )
+    {
+      my $last_io_error =
+        defined( $status{Last_IO_Error} ) ? $status{Last_IO_Error} : '';
+      $log->error(
+        sprintf( "IO Thread could not be started on %s! Check slave status.",
+          $self->get_hostinfo() )
+      );
+      $log->error(
+        sprintf( " Last IO Error= %s, Last IO Error=%s",
+          $status{Last_IO_Errno}, $last_io_error )
+      );
+      return 1;
+    }
     if ( $status{Slave_SQL_Running} eq "No" && $status{Last_Errno} ne '0' ) {
       $log->error(
         sprintf( "SQL Thread could not be started on %s! Check slave status.",
@@ -980,12 +1004,19 @@ sub gtid_wait {
     return 1;
   }
   if ( $res >= 0 ) {
-    $log->info(
-      sprintf(
-        " gtid_wait(%s) completed on %s. Executed %d events.",
-        $exec_gtid, $self->get_hostinfo(), $res
-      )
-    );
+    if ( $self->{is_mariadb} ) {
+      $log->info(
+        sprintf( " MariaDB GTID position %s reached on %s.",
+          $exec_gtid, $self->get_hostinfo() ) );
+    }
+    else {
+      $log->info(
+        sprintf(
+          " gtid_wait(%s) completed on %s. Executed %d events.",
+          $exec_gtid, $self->get_hostinfo(), $res
+        )
+      );
+    }
     return 0;
   }
   else {

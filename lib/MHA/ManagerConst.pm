@@ -24,8 +24,8 @@ use warnings FATAL => 'all';
 
 use MHA::NodeConst;
 
-our $VERSION          = '0.58';
-our $NODE_MIN_VERSION = '0.54';
+our $VERSION          = '0.59';
+our $NODE_MIN_VERSION = '0.59';
 
 our @ALIVE_ERROR_CODES = (
   1040,    # ER_CON_COUNT_ERROR

@@ -1,3 +1,50 @@
 mha4mysql-manager - Master High Availability Manager and tools for MySQL (MHA) for automating master failover and fast master switch. This package contains manager scripts.
 See https://github.com/yoshinorim/mha4mysql-manager/wiki for details.
 
+MariaDB GTID replication
+========================
+
+The manager supports native MariaDB GTID replication in addition to MySQL
+GTID on MariaDB 10.0 and newer, including MariaDB 11.x and 12.x. During an
+online switch, MariaDB 10.10 and newer use MASTER_DEMOTE_TO_SLAVE=1; older
+MariaDB versions fall back to MASTER_USE_GTID=current_pos for the former
+primary. Regular replicas always use the safer MASTER_USE_GTID=slave_pos. The
+SQL compatibility checks are verified against MariaDB 10.11.18 and 12.1.2.
+
+Required settings on every possible primary include:
+
+  [mariadb]
+  server_id=101                 # unique on every server
+  log_bin=mariadb-bin
+  log_slave_updates=ON
+  gtid_strict_mode=ON           # strongly recommended
+
+Configure replicas with native MariaDB GTID positioning:
+
+  CHANGE MASTER TO
+    MASTER_HOST='db-primary',
+    MASTER_USER='repl',
+    MASTER_PASSWORD='secret',
+    MASTER_USE_GTID=slave_pos;
+
+Set use_gtid_auto_pos=1 in the MHA application configuration (this remains the
+option name for compatibility with existing MySQL configurations). The option
+is enabled by default.
+
+MariaDB requirements and limitations:
+
+* Keep a single GTID domain for a normal single-primary topology and use a
+  unique server_id on every node.
+* log_slave_updates must be enabled on promotion candidates. The manager
+  excludes unsafe candidates when GTID failover is active.
+* Mixed MySQL/MariaDB topologies do not use GTID auto-position because the two
+  GTID formats are incompatible. They fall back to the existing file/position
+  recovery path.
+* MariaDB multi-source replication is outside MHA's single-source topology
+  model.
+
+MariaDB references:
+
+* https://mariadb.com/docs/server/ha-and-performance/standard-replication/gtid
+* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to
+* https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/miscellaneous-functions/master_gtid_wait

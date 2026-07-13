@@ -53,6 +53,7 @@ samples/scripts/master_ip_online_change
 samples/scripts/power_manager
 samples/scripts/send_report
 t/99-perlcritic.t
+t/mariadb_gtid.t
 t/perlcriticrc
 tests/intro.txt
 tests/run_suites.sh

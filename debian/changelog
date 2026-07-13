@@ -1,3 +1,16 @@
+mha4mysql-manager (0.59-0+local1) noble; urgency=medium
+
+  * Add MariaDB GTID replication support for monitoring, failover and
+    online master switch.
+  * Use MariaDB GTID positions and MASTER_USE_GTID=slave_pos when
+    reparenting replicas.
+  * Synchronize online switches by MariaDB GTID and report replica IO
+    startup errors without waiting for the SQL thread timeout.
+  * Require mha4mysql-node 0.59 for compatible MariaDB client and
+    raw-binlog handling.
+
+ -- A S <furyseer@gmail.com>  Sun, 12 Jul 2026 14:00:00 +0300
+
 mha4mysql-manager (0.58-0) squeeze; urgency=low
 
   * Several bugfixes
