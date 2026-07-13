@@ -463,10 +463,15 @@ sub wait_until_master_is_unreachable() {
       logfile                => $g_logfile,
       workdir                => $g_workdir,
       ping_type              => $current_master->{ping_type},
+      ping_max_failures      => $current_master->{ping_max_failures},
     );
     $log->info(
       sprintf( "Set master ping interval %d seconds.",
         $_master_ping->get_ping_interval() )
+    );
+    $log->info(
+      sprintf( "Set master ping failure threshold %d.",
+        $_master_ping->get_ping_max_failures() )
     );
     if ( $current_master->{secondary_check_script} ) {
       $_master_ping->set_secondary_check_script(

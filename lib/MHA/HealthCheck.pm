@@ -55,6 +55,7 @@ sub new {
     logger                 => undef,
     logfile                => undef,
     ping_type              => undef,
+    ping_max_failures      => $MHA::ManagerConst::DEFAULT_PING_MAX_FAILURES,
 
     # internal (read/write) variables
     _tstart            => undef,
@@ -174,6 +175,11 @@ sub set_ping_interval($$) {
 sub get_ping_interval($) {
   my $self = shift;
   return $self->{interval};
+}
+
+sub get_ping_max_failures($) {
+  my $self = shift;
+  return $self->{ping_max_failures};
 }
 
 sub set_secondary_check_script($$) {
@@ -660,7 +666,7 @@ sub wait_until_unreachable($) {
           $log->warning("Connection failed $error_count time(s)..");
           $self->handle_failing();
 
-          if ( $error_count >= 4 ) {
+          if ( $error_count >= $self->{ping_max_failures} ) {
             $ssh_reachable = $self->is_ssh_reachable();
             $master_is_down = 1 if ( $self->is_secondary_down() );
             last if ($master_is_down);
@@ -730,8 +736,16 @@ sub wait_until_unreachable($) {
 
         # failed on fork_exec
         $error_count++;
+        $log->warning("Ping failed $error_count time(s)..");
         $self->{_need_reconnect} = 1;
         $self->handle_failing();
+
+        if ( $error_count >= $self->{ping_max_failures} ) {
+          $ssh_reachable = $self->is_ssh_reachable();
+          $master_is_down = 1 if ( $self->is_secondary_down() );
+          last if ($master_is_down);
+          $error_count = 0;
+        }
       }
       $self->sleep_until();
     }

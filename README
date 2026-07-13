@@ -1,6 +1,22 @@
 mha4mysql-manager - Master High Availability Manager and tools for MySQL (MHA) for automating master failover and fast master switch. This package contains manager scripts.
 See https://github.com/yoshinorim/mha4mysql-manager/wiki for details.
 
+Master health-check failure threshold
+=====================================
+
+The number of consecutive failed master health checks required before MHA
+considers starting failover is configurable in the application or global
+configuration:
+
+  [server default]
+  ping_interval=3
+  ping_max_failures=4
+
+The default value of ping_max_failures is 4. It must be a positive integer.
+A successful ping resets the failure counter. Configured secondary and SSH
+checks still run before MHA declares the master unreachable and starts
+failover.
+
 MariaDB GTID replication
 ========================
 

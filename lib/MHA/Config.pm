@@ -31,7 +31,7 @@ use MHA::NodeUtil;
 use MHA::ManagerConst;
 
 my @PARAM_ARRAY =
-  qw/ hostname ip port ssh_host ssh_ip ssh_port ssh_connection_timeout ssh_options node_label candidate_master no_master ignore_fail skip_init_ssh_check skip_reset_slave user password repl_user repl_password disable_log_bin master_pid_file handle_raw_binlog ssh_user remote_workdir master_binlog_dir log_level manager_workdir manager_log check_repl_delay check_repl_filter latest_priority multi_tier_slave ping_interval ping_type secondary_check_script master_ip_failover_script master_ip_online_change_script shutdown_script report_script init_conf_load_script client_bindir client_libdir use_gtid_auto_pos/;
+  qw/ hostname ip port ssh_host ssh_ip ssh_port ssh_connection_timeout ssh_options node_label candidate_master no_master ignore_fail skip_init_ssh_check skip_reset_slave user password repl_user repl_password disable_log_bin master_pid_file handle_raw_binlog ssh_user remote_workdir master_binlog_dir log_level manager_workdir manager_log check_repl_delay check_repl_filter latest_priority multi_tier_slave ping_interval ping_max_failures ping_type secondary_check_script master_ip_failover_script master_ip_online_change_script shutdown_script report_script init_conf_load_script client_bindir client_libdir use_gtid_auto_pos/;
 my %PARAM;
 for (@PARAM_ARRAY) { $PARAM{$_} = 1; }
 
@@ -282,6 +282,15 @@ sub parse_server {
     $value{ping_interval} = 3 if ( !defined( $value{ping_interval} ) );
   }
   check_positive_int( "ping_interval", $value{ping_interval} );
+
+  $value{ping_max_failures} = $param_arg->{ping_max_failures};
+  if ( !defined( $value{ping_max_failures} ) ) {
+    $value{ping_max_failures} = $default->{ping_max_failures};
+    $value{ping_max_failures} =
+      $MHA::ManagerConst::DEFAULT_PING_MAX_FAILURES
+      if ( !defined( $value{ping_max_failures} ) );
+  }
+  check_positive_int( "ping_max_failures", $value{ping_max_failures} );
 
   $value{client_bindir} = $param_arg->{client_bindir};
   if ( !defined( $value{client_bindir} ) ) {

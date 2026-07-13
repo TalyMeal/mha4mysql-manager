@@ -1,3 +1,13 @@
+mha4mysql-manager (0.60-0+local1) noble; urgency=medium
+
+  * Add the ping_max_failures configuration option for controlling the
+    number of consecutive failed master health checks before failover.
+  * Keep the existing threshold of four failures as the default for
+    backward compatibility.
+  * Apply the threshold to connection failures and query ping failures.
+
+ -- TalyMeal <furyseer@gmail.com>  Tue, 14 Jul 2026 02:05:42 +0300
+
 mha4mysql-manager (0.59-0+local1) noble; urgency=medium
 
   * Add MariaDB GTID replication support for monitoring, failover and

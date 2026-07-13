@@ -54,6 +54,7 @@ samples/scripts/power_manager
 samples/scripts/send_report
 t/99-perlcritic.t
 t/mariadb_gtid.t
+t/ping_max_failures.t
 t/perlcriticrc
 tests/intro.txt
 tests/run_suites.sh

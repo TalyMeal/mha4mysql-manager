@@ -1,6 +1,6 @@
 Summary: Master High Availability Manager and Tools for MySQL, Manager Package
 Name: mha4mysql-manager
-Version: 0.59
+Version: 0.60
 Release: 0%{?dist}
 License: GPL v2
 Vendor: DeNA Co.,Ltd.
@@ -58,6 +58,10 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 
 %changelog
+* Tue Jul 14 2026 TalyMeal <furyseer@gmail.com> - 0.60-0
+- Add a configurable threshold for consecutive failed master health checks.
+- Preserve four failures as the default and validate positive integer values.
+
 * Sun Jul 12 2026 A S <furyseer@gmail.com> - 0.59-0
 - Add MariaDB GTID replication support.
 - Synchronize online switches by MariaDB GTID and report replica IO errors.
