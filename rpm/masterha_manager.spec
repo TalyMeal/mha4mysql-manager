@@ -1,6 +1,6 @@
 Summary: Master High Availability Manager and Tools for MySQL, Manager Package
 Name: mha4mysql-manager
-Version: 0.60
+Version: 0.61
 Release: 0%{?dist}
 License: GPL v2
 Vendor: DeNA Co.,Ltd.
@@ -58,6 +58,11 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 
 %changelog
+* Wed Jul 15 2026 TalyMeal <furyseer@gmail.com> - 0.61-0
+- Normalize read_only values returned by MySQL and MariaDB.
+- Support and preserve strict MariaDB read-only modes.
+- Fail explicitly for undefined or unsupported read_only values.
+
 * Tue Jul 14 2026 TalyMeal <furyseer@gmail.com> - 0.60-0
 - Add a configurable threshold for consecutive failed master health checks.
 - Preserve four failures as the default and validate positive integer values.
