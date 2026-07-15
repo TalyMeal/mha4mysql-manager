@@ -296,8 +296,24 @@ sub is_binlog_enabled($) {
 }
 
 sub is_read_only($) {
-  my $self = shift;
-  return $self->get_variable(Is_Readonly_SQL);
+  my $self  = shift;
+  my $value = $self->get_variable(Is_Readonly_SQL);
+
+  croak "read_only returned an undefined value" unless ( defined($value) );
+
+  my $normalized = uc($value);
+  return 0
+    if ( $normalized eq "0"
+    || $normalized eq "OFF"
+    || $normalized eq "FALSE" );
+  return 1
+    if ( $normalized eq "1"
+    || $normalized eq "ON"
+    || $normalized eq "TRUE"
+    || $normalized eq "NO_LOCK"
+    || $normalized eq "NO_LOCK_NO_ADMIN" );
+
+  croak "Unsupported read_only value '$value'";
 }
 
 sub has_gtid($) {

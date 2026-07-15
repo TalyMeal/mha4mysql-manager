@@ -328,6 +328,68 @@ subtest 'server vendor detection' => sub {
   ok( !$mysql->{is_mariadb}, 'MySQL is not marked as MariaDB' );
 };
 
+subtest 'read_only values are normalized across MySQL and MariaDB' => sub {
+  my @cases = (
+    [ 0,                  0 ],
+    [ 1,                  1 ],
+    [ 'OFF',              0 ],
+    [ 'FALSE',            0 ],
+    [ 'ON',               1 ],
+    [ 'TRUE',             1 ],
+    [ 'NO_LOCK',          1 ],
+    [ 'NO_LOCK_NO_ADMIN', 1 ],
+  );
+
+  for my $case (@cases) {
+    my ( $value, $expected ) = @{$case};
+    my $dbh = Local::DBH->new(
+      handler => sub {
+        return { ret => 1, row => { Value => $value } };
+      },
+    );
+    my $helper = MHA::DBHelper->new( dbh => $dbh );
+
+    is(
+      $helper->is_read_only(),
+      $expected,
+      "read_only=$value is normalized to $expected",
+    );
+  }
+};
+
+subtest 'strict MariaDB read_only modes are preserved' => sub {
+  my $dbh = Local::DBH->new(
+    handler => sub {
+      return { ret => 1, row => { Value => 'NO_LOCK_NO_ADMIN' } };
+    },
+  );
+  my $helper = MHA::DBHelper->new( dbh => $dbh, is_mariadb => 1 );
+
+  is(
+    $helper->enable_read_only(), 0,
+    'strict read_only mode is already enabled',
+  );
+  is( scalar @{ $dbh->queries() }, 1, 'read_only is not set to a weaker mode' );
+  like(
+    $dbh->queries()->[0]->{query},
+    qr/SELECT \@\@global\.read_only/i,
+    'only the read_only status query is executed',
+  );
+};
+
+subtest 'unknown read_only values fail explicitly' => sub {
+  my $dbh = Local::DBH->new(
+    handler => sub {
+      return { ret => 1, row => { Value => 'UNKNOWN' } };
+    },
+  );
+  my $helper = MHA::DBHelper->new( dbh => $dbh, is_mariadb => 1 );
+
+  eval { $helper->is_read_only(); };
+  like( $@, qr/Unsupported read_only value 'UNKNOWN'/,
+    'an unknown value is not treated as writable' );
+};
+
 subtest 'Server exposes the detected database vendor' => sub {
   my $server = Local::StatusServer->new();
   $server->{hostname} = 'db-primary';
