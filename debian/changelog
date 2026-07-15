@@ -1,3 +1,12 @@
+mha4mysql-manager (0.61-0+local1) noble; urgency=medium
+
+  * Normalize read_only values returned by MySQL and MariaDB.
+  * Support MariaDB NO_LOCK and NO_LOCK_NO_ADMIN read-only modes.
+  * Preserve strict MariaDB read-only modes instead of weakening them.
+  * Fail explicitly for undefined or unsupported read_only values.
+
+ -- TalyMeal <furyseer@gmail.com>  Wed, 15 Jul 2026 16:59:49 +0300
+
 mha4mysql-manager (0.60-0+local1) noble; urgency=medium
 
   * Add the ping_max_failures configuration option for controlling the
